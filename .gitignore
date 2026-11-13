@@ -1,0 +1,16 @@
+# Downloaded images (SystemRescue ISO and similar)
+downloads/
+*.iso
+*.img
+
+# SSH keys for the rescue session: never commit
+keys/
+*.pem
+
+# Data copied from the faulty PC (crash dumps, event logs, personal files)
+collected/
+*.dmp
+*.evtx
+
+# USB build staging
+build/
