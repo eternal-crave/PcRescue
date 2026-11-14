@@ -39,9 +39,16 @@ Reading SMART well:
 - **`UDMA_CRC_Error_Count`** counts transfers corrupted on the cable, not on the platters. A large number points to the SATA cable, connector or port. Error-log entries with `ICRC, ABRT` say the same.
 - **`UNC` errors and `Current_Pending_Sector`** are unreadable sectors on the media itself.
 - **`FAILING_NOW` on any attribute** (its normalized VALUE at or below the threshold) is a real failure, even with zero reallocated sectors. On some hard disks it's `Raw_Read_Error_Rate`.
+- **A bad data cable** shows only as `UDMA_CRC_Error_Count`, `ICRC` entries in the error log, and kernel link messages (`BadCRC`, `10B8B`, a non-zero `SErr`). It can't fail `Raw_Read_Error_Rate` or a self-test, because both happen inside the drive. To tell old cable trouble from current: check whether the CRC count is still rising, and how old the `ICRC` entries are (error-log age = `Power_On_Hours` minus the hours on the entry).
 - **Cheap SSDs** (often DRAM-less models) report a handful of attributes that never change. PASSED on those proves little; the read test below is the real check.
 
-Optional, only with the drive looking healthy: `smartctl -t short /dev/sda`, then read the result two minutes later with `smartctl -l selftest /dev/sda`.
+**The drive's short self-test** (`smartctl -t short /dev/sdX`, read with `smartctl -l selftest /dev/sdX` after 1–2 minutes) is light: the drive checks itself for about two minutes and moves no data over the cable. Run it on every hard disk, including a failing one. A failed self-test is the drive's own second verdict, which helps when a FAILED attribute alone doesn't convince the user.
+- `Completed without error`: passed.
+- `Completed: read failure` (with an LBA): unreadable sectors.
+- `Completed: servo/seek failure` or `electrical failure`: mechanics or electronics.
+- `Completed: handling damage??`: the drive suspects physical shock damage. `G-Sense_Error_Rate` counts the shocks its sensor recorded.
+
+Don't follow a failed self-test with the extended self-test or a full read: they read the whole disk once, the same wear as copying the files off it. If the user wants the files, the copy is the better use of those reads, and it also shows which files, if any, can't be read.
 
 ### Read test (whole disk, read-only)
 
@@ -52,7 +59,9 @@ dmesg | wc -l > /root/readtest-sdX.dmesg-start      # to see only new kernel mes
 systemd-run --unit=pcrescue-readtest-sdX --collect /usr/local/bin/pcrescue-readtest /dev/sdX
 ```
 
-Use it on SSDs and on hard disks with clean SMART. Don't run it on a hard disk with failure signs: back up first. A healthy SATA SSD reads 1 GiB in 2–5 s (on a 3 Gb/s port about 4 s). Afterwards read the new kernel messages: `dmesg | tail -n +$(( $(cat /root/readtest-sdX.dmesg-start) + 1 )) | grep -E 'ata[0-9]|sd[a-z]' | head -n 30`.
+Use it on SSDs and on hard disks with clean SMART. Don't run it on a hard disk with failure signs: back up first. A healthy SATA SSD reads 1 GiB in 2–5 s (on a 3 Gb/s port about 4 s).
+
+A hard disk is fastest at the start and slows smoothly toward the end, often to half the speed: the outer tracks hold more data per turn. That smooth rise in the log is normal. Find the partition that holds each failed sector (`/sys/block/sdX/sdXN/start` and `size`, in 512-byte sectors) and tell the user whether it's in their files or in data that can be replaced. The kernel's "auto reallocate failed" means the drive couldn't move the sector during the read. It stays pending until something writes to it, and only then gets replaced from the spare pool. Afterwards read the new kernel messages: `dmesg | tail -n +$(( $(cat /root/readtest-sdX.dmesg-start) + 1 )) | grep -E 'ata[0-9]|sd[a-z]' | head -n 30`.
 
 Telling the cause apart from the kernel messages:
 
@@ -60,8 +69,8 @@ Telling the cause apart from the kernel messages:
 |---|---|
 | `interface fatal error`, `SError: { UnrecovData 10B8B BadCRC }`, `hard resetting link`, `ICRC` | The SATA link corrupts data: cable, connector, port, or power to the drive. The stored data is usually intact. |
 | `Logical unit not ready, hard reset required`, then `detaching`, `rejecting I/O to offline device` | The drive stopped answering and Linux dropped it. It follows link errors, or comes from a failing controller. |
-| `UNC`, `Medium Error`, `Unrecovered read error` at specific sectors | Unreadable media: the drive itself is failing. |
-| Steps much slower than the rest, with no errors | Weak areas or an overheating or throttling drive. Note which GiB. |
+| `UNC`, `Medium Error`, `Unrecovered read error` at specific sectors, with `SErr 0x0` and a steady CRC count | Unreadable media: the drive itself is failing. |
+| Single steps much slower than their neighbours, with no errors (not the smooth slowdown toward a hard disk's end) | Weak areas or an overheating or throttling drive. Note which GiB. |
 
 If the disk drops off, stop. Release its mount with `umount -l /mnt/<dir>`. It comes back after a power cycle. Don't rescan or retest it before the physical fix in `repairs.md`.
 
