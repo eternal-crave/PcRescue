@@ -19,6 +19,7 @@ Tooling in this repository (paths relative to the project root):
 | `scripts/watch-kernel-log.ps1` | Streams the PC's kernel log (and with `-Voltages` its sensor readings) to `collected\pc-kernel.log`, so the last messages before a freeze survive |
 | `scripts/pull.ps1` | Copies files from the rescue PC to the laptop (binary-safe) |
 | `scripts/backup-plan.ps1` | Read-only: lists what a backup would copy, with sizes, file counts, biggest items and times |
+| `cases/` | One log per rescued PC: hardware, evidence, what was tried, results, open items |
 | `keys/`, `downloads/`, `collected/` | SSH key, ISO, evidence copied from the PC. All gitignored, never commit them |
 
 ## Why the safety gates exist
@@ -77,7 +78,7 @@ On the laptop, wait about a minute for Windows to give the Ethernet port a `169.
 
 The PC's monitor switches to the PcRescue status screen (Alt+F8). It shows the current command, long tasks with a progress bar, Linux uptime, CPU temperature and load, memory, the cable, every mounted drive with read-only or READ-WRITE, copies to the laptop, and recent commands. A small heart pulses calmly beside the "This PC" panel next to a slow ECG line, and turns grey and flat when the cable is out. Users watch it out of the corner of an eye, so keep it calm: no flashing, no pace changes, and never let it push a panel off the screen.
 
-Tell the user to expect the screen, and that Alt+F1 gives the command line. If it's missing, run `.\scripts\install-status-screen.ps1`. A stick written before the screen existed needs this after every boot. To check what the screen shows, read the console text: `fold -w <cols> /dev/vcs8`.
+Tell the user to expect the screen, and that Alt+F1 gives the command line. If it's missing, run `.\scripts\install-status-screen.ps1`. A stick written from an older copy of this repository needs this after every boot. To check what the screen shows, read the console text: `fold -w <cols> /dev/vcs8`.
 
 Run every remote command as `.\scripts\pc.ps1 -Label '<what it does, in plain words>' '<command>'`. The label is what the person at the PC reads, so write "Checking the SSD for read errors", not the command. Multi-line here-strings (`@'...'@`) and quotes arrive intact. Keep commands read-only until Step 7.
 
@@ -93,7 +94,7 @@ Follow `references/diagnosis.md`. In short:
 2. Check every disk's health: SMART or NVMe health, the SMART error log and how old its entries are, kernel I/O errors. If a hard disk shows failure signs, stop broad scans of it and go to Step 6 at once to offer the backup, because every extra read may be one of its last.
 3. Watch whether the rescue system itself stays up. Linux crashing or freezing as well points to hardware: RAM, CPU, power supply or heat. Once the PC has frozen even once, keep `scripts\watch-kernel-log.ps1 -Voltages` running in the background for the rest of the session. Ask the user for a photo of the PC's screen whenever it stops answering.
 4. Mount Windows read-only. If it's BitLocker-encrypted, the user unlocks it at the PC's own keyboard.
-5. Pull evidence to the laptop's `collected/` folder: minidumps, event logs (including `Microsoft-Windows-Partition%4Diagnostic.evtx`), CBS log. Analyze it on the laptop. Windows numbers disks differently from Linux: map an event's "Disk 2" to a model and serial before blaming a disk.
+5. Pull evidence to the laptop's `collected/` folder: minidumps, event logs (including `Microsoft-Windows-Partition%4Diagnostic.evtx`), CBS log. Analyze it on the laptop. Windows numbers disks differently from Linux: map an event's "Disk N" to a model and serial before blaming a disk.
 6. If the logs point at the Windows disk (retried I/O or paging errors around the crashes) but its SMART looks clean, run the read test on it: `systemd-run --unit=pcrescue-readtest-sdX --collect /usr/local/bin/pcrescue-readtest /dev/sdX`. Many cheap SSDs report almost nothing in SMART, so PASSED proves little. The test only reads. Skip it on a hard disk with SMART failure signs.
    - If the disk drops off during the test, that is the finding. Stop, release its mount with `umount -l`, and don't hammer it again before the physical fix.
 
@@ -112,17 +113,17 @@ Useful options:
 - `-DriveMBps <n>` tightens the time estimate once the drive's read speed is known. Measure it with `dd if=<a large file> of=/dev/null bs=1M count=512`, but skip that on a failing drive.
 - `-TsvPath collected\backup-plan.tsv` shows the list again without measuring again.
 
-The script measures only the Windows user folders. Add personal folders on other disks with `-Extra`, for example `-Extra '/mnt/sdb1/Anna','/mnt/sdb1/Videos'`, and copy first from a disk that shows failure signs.
+The script measures only the Windows user folders. Add personal folders on other disks with `-Extra`, for example `-Extra '/mnt/<partition>/<folder>'`, and copy first from a disk that shows failure signs.
 
-If the script can't run, measure with `du -sh` and estimate the time as GB × 1024 ÷ MB/s ÷ 60 minutes. Plan on about 80–100 MB/s for a 1 Gbps link and 9–11 MB/s for 100 Mbps (about 35 GB an hour). Check the PC's own port with `ethtool <device>`: many older boards have a 100 Mbps chip (for example Realtek RTL8105e), so a slow link isn't necessarily a bad cable. For hundreds of GB, suggest an external USB drive plugged into the faulty PC instead. `rsync` there runs at the drives' speed, not the cable's.
+If the script can't run, measure with `du -sh` and estimate the time as GB × 1024 ÷ MB/s ÷ 60 minutes. Plan on about 80–100 MB/s for a 1 Gbps link and 9–11 MB/s for 100 Mbps (about 35 GB an hour). Check the PC's own port with `ethtool <device>`: many older boards have a 100 Mbps network chip, so a slow link isn't necessarily a bad cable. For hundreds of GB, suggest an external USB drive plugged into the faulty PC instead. `rsync` there runs at the drives' speed, not the cable's.
 
 Don't paste the raw output. Show it in chat as an easy-to-read table, one row per folder, with what's inside in plain words, then the total, where it goes and what's left out. For example:
 
 | Folder | Size | Files | Time | Biggest items inside |
 |---|---|---|---|---|
-| David / Pictures | 21.0 GB | 14,200 | 6–8 min | Phone backup (20 GB), Wallpapers (0.8 GB) |
-| David / Downloads | 13.5 GB | 750 | 4–5 min | Win11.iso (8 GB), game-setup.exe (4 GB) |
-| David / Documents | 12.4 GB | 8,120 | 4–5 min | Projects (9.8 GB), Taxes (1.1 GB) |
+| Alex / Pictures | 21.0 GB | 14,200 | 6–8 min | Phone backup (20 GB), Wallpapers (0.8 GB) |
+| Alex / Downloads | 13.5 GB | 750 | 4–5 min | Win11.iso (8 GB), game-setup.exe (4 GB) |
+| Alex / Documents | 12.4 GB | 8,120 | 4–5 min | Projects (9.8 GB), Taxes (1.1 GB) |
 | **Total** | **48.1 GB** | **23,410** | **14–18 min** | |
 
 Goes to `C:\Projects\PcRescue\collected\backup` on this laptop (134 GB free). Not included: Windows, programs, and AppData (app settings, browser bookmarks and passwords).
@@ -133,6 +134,8 @@ Point out easy savings, such as installers or ISO files in Downloads that can be
 
 **If the drive shows failure signs:** say clearly that this may be the last chance to read the files, and recommend the backup. The choice is still theirs.
 
+**If the memory test showed errors:** copy nothing until the PC runs only on sticks that passed. Bad RAM can silently corrupt the copies.
+
 **If they skip it:** say in the confirmation for any repair that could lose data that no backup exists.
 
 ## Step 7: Repairs, one confirmed change at a time
@@ -142,9 +145,17 @@ Pick from `references/repairs.md` by cause: a bad SATA connection (cable, port o
 ## Step 8: Cleanup
 
 - Boot Windows normally and watch whether it stays up.
-- Turn Secure Boot back on. Resume BitLocker if it was suspended (`manage-bde -protectors -enable C:` in the recovery console, or `Resume-BitLocker -MountPoint C:` in Windows).
+- Turn Secure Boot back on, if the user turned it off for the stick. Not when Windows boots in legacy/CSM mode (MBR disk with a System Reserved partition): there Secure Boot was off before the rescue started, and turning it on usually needs CSM off, which stops that Windows from starting.
+- On the first Windows start after the crashes, Windows may check the disk ("Scanning and repairing drive"). Tell the user to let it finish. Once Windows stays up, it's worth repairing system files the crashes may have damaged: in an admin terminal `DISM /Online /Cleanup-Image /RestoreHealth`, then `sfc /scannow`. The user runs these in Windows; they replace damaged system files with good copies and leave personal files alone.
+- Resume BitLocker if it was suspended (`manage-bde -protectors -enable C:` in the recovery console, or `Resume-BitLocker -MountPoint C:` in Windows).
 - Ask whether to delete `collected/`, which holds personal data, and whether to keep the stick and key for next time or wipe them.
 - Summarize what was found, what changed, and what to watch for.
+
+## Case log and skill upkeep
+
+Keep each PC's story in its own file, `cases/<yyyy-mm-dd>-<short-name>.md`, and update it as the work goes. Record the hardware, the evidence with its numbers, what was tried, the results and the open items. Leave out passwords, keys, serial numbers and the names of the user's personal files and folders. A new session on the same PC starts by reading that file.
+
+This skill holds only rules that fit any PC. When a case teaches something new, add it here or in `references/` as a general rule, without that case's names, dates or numbers. A concrete scenario goes into `evals/` as a test case.
 
 ## Talking to the user
 

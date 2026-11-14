@@ -26,7 +26,7 @@ The faulty PC boots SystemRescue (Linux) from a USB stick. The laptop connects t
 3. Write the stick from an elevated PowerShell. This erases the whole stick:
 
    ```powershell
-   .\scripts\write-usb.ps1 -DiskNumber 1 -ExpectedName 'TOSHIBA Transmemory' `
+   .\scripts\write-usb.ps1 -DiskNumber <n> -ExpectedName '<FriendlyName from Get-Disk>' `
      -IsoPath .\downloads\systemrescue-13.03-amd64.iso -PublicKeyPath .\keys\pcrescue_ed25519.pub
    ```
 
@@ -42,11 +42,11 @@ The faulty PC boots SystemRescue (Linux) from a USB stick. The laptop connects t
    .\scripts\watch-kernel-log.ps1 -Voltages                  # stream kernel log + sensors to collected\ (catches freezes)
    ```
 
-   `pc.ps1` sends commands base64-encoded, so quotes and multi-line here-strings survive Windows PowerShell 5. For long jobs use `systemd-run` on the PC, for example `systemd-run --unit=pcrescue-readtest-sdc --collect /usr/local/bin/pcrescue-readtest /dev/sdc`, so a dropped connection doesn't stop them.
+   `pc.ps1` sends commands base64-encoded, so quotes and multi-line here-strings survive Windows PowerShell 5. For long jobs use `systemd-run` on the PC, for example `systemd-run --unit=pcrescue-readtest-sdX --collect /usr/local/bin/pcrescue-readtest /dev/sdX`, so a dropped connection doesn't stop them.
 
 ## Claude skill
 
-`.claude/skills/pc-rescue/` teaches Claude Code the whole workflow when it runs in this folder. It covers the safety briefing and explicit consent, BitLocker and Secure Boot preparation, building the stick, connecting, read-only diagnosis, an optional file backup (offered with its size in GB and an estimated copy time), repairs that each need a yes, and cleanup. Its `evals/` folder holds test cases in the `claude plugin eval` layout.
+`.claude/skills/pc-rescue/` teaches Claude Code the whole workflow when it runs in this folder. It covers the safety briefing and explicit consent, BitLocker and Secure Boot preparation, building the stick, connecting, read-only diagnosis, an optional file backup (offered with its size in GB and an estimated copy time), repairs that each need a yes, and cleanup. Its `evals/` folder holds test cases in the `claude plugin eval` layout. The skill holds only general rules; each rescued PC's own story (hardware, evidence, what was tried, results, open items) goes in its own file in `cases/`.
 
 Turn Secure Boot back on when finished. If the Windows drive uses BitLocker, Windows asks for the recovery key after Secure Boot changes, and Linux needs that key to read the drive.
 

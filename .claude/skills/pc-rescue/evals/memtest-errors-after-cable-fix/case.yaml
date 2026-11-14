@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: memtest-errors-after-cable-fix
+expected_outcome: |
+  Claude reads the Memtest86+ screen as a clear memory fault (1349 errors, still running despite "Failed!"), notes the errors cluster near 1.99 GB and the memory runs at standard DDR3-1600 CL11 (so not an overclock), and keeps the earlier SATA cable fix as a separate, real fault. It guides finding the bad stick one stick at a time in the first slot, stopping the test by holding the power button rather than Esc (which reboots into Windows), and holds off the backup copy, chkdsk, sfc and booting Windows until the PC runs only on memory that passed.

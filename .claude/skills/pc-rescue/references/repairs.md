@@ -27,7 +27,11 @@ Don't run `chkdsk /r`, `fsck` or full surface scans on a failing drive. They str
 
 ## Bad RAM
 
-The memory test reports errors, or the rescue system freezes too. The user reseats the RAM sticks with the power cable unplugged, then tests one stick at a time with the boot-menu memory test. Replace the bad stick. No software fix exists.
+The memory test reports errors, or the rescue system freezes too. The user reseats the RAM sticks with the power cable unplugged, then tests one stick at a time with the boot-menu memory test (steps and how to read the results: `diagnosis.md`, "Finding the bad stick"). Replace the bad stick. No software fix exists.
+
+- Until then, run the PC on the stick that passed. One stick is usually enough for the rescue system, the backup and Windows (Windows 10 and 11 need at least 4 GB).
+- A replacement must match the label on the good stick: type (DDR3 or DDR3L, DDR4, …), speed (for example 1600), and a desktop stick for a desktop PC. The same size keeps dual-channel speed.
+- Order after a RAM fault: run on good memory → back up → only then `chkdsk`, `sfc` or Windows repairs. Anything written while the bad stick was in may be damaged, so it's worth checking system files once Windows runs on good RAM.
 
 ## Damaged Windows system files
 
