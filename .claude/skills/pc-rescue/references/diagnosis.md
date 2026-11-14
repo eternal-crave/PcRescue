@@ -1,6 +1,6 @@
 # Read-only diagnosis
 
-Everything here only reads. Run remote commands through `.\scripts\pc.ps1 '<command>'` and copy files back with `.\scripts\pull.ps1 <remote path> <local folder>`.
+Everything here only reads. Run remote commands through `.\scripts\pc.ps1 -Label '<plain words>' '<command>'` and copy files back with `.\scripts\pull.ps1 <remote path> <local folder>`.
 
 ## 1. Inventory
 
@@ -9,7 +9,15 @@ lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MODEL,SERIAL
 blkid
 ```
 
-Windows usually lives on the largest `ntfs` partition (or `BitLocker` in `FSTYPE`). Note the device names. NVMe is `/dev/nvme0n1pN`, SATA is `/dev/sdXN`.
+Windows usually lives on the largest `ntfs` partition (or `BitLocker` in `FSTYPE`). Note the device names. NVMe is `/dev/nvme0n1pN`, SATA is `/dev/sdXN`. With several disks, find the one holding `Windows/System32` after mounting. A 50 MB "System Reserved" partition next to it means Windows boots in legacy (CSM) mode, which is one more reason to leave that firmware setting alone.
+
+Mount every other NTFS partition read-only too, and list what's on it:
+
+```sh
+for p in sda1 sdb1; do mkdir -p /mnt/$p; ntfs-3g -o ro /dev/$p /mnt/$p; echo "== $p"; ls /mnt/$p; done
+```
+
+Folders named after the user, project files, photos or "Montages" on a second disk are personal data. Whether that disk is healthy decides how urgent the backup in SKILL.md Step 6 is, even when the crashes come from another disk.
 
 ## 2. Drive health
 
@@ -26,13 +34,52 @@ Signs of a failing drive:
 
 A failing drive explains `CRITICAL_PROCESS_DIED` well. Windows can't read a core process's code from disk, and the process dies. If you see any of these signs, stop broad scans and go to file rescue.
 
+Reading SMART well:
+- **How recent?** `smartctl -l error` stamps each error with the disk's power-on hours. Compare with attribute 9 (`Power_On_Hours`). An error 13 hours ago is current; one 7,000 hours ago is history.
+- **`UDMA_CRC_Error_Count`** counts transfers corrupted on the cable, not on the platters. A large number points to the SATA cable, connector or port. Error-log entries with `ICRC, ABRT` say the same.
+- **`UNC` errors and `Current_Pending_Sector`** are unreadable sectors on the media itself.
+- **Samsung hard disks:** a `Raw_Read_Error_Rate` normalized value (VALUE column) below its threshold, shown as `FAILING_NOW`, is a real failure even with zero reallocated sectors.
+- **Cheap SSDs** (Lexar, generic DRAM-less models) often report a handful of attributes that never change. PASSED on those proves little; the read test below is the real check.
+
 Optional, only with the drive looking healthy: `smartctl -t short /dev/sda`, then read the result two minutes later with `smartctl -l selftest /dev/sda`.
+
+### Read test (whole disk, read-only)
+
+The stick installs `pcrescue-readtest`. It reads the whole disk once in 1 GiB steps with `dd iflag=direct`, writes nothing, shows progress on the PC's status screen, and logs `<GiB> <milliseconds> ok|ERROR` per step to `/root/readtest-<disk>.log`:
+
+```sh
+dmesg | wc -l > /root/readtest-sdc.dmesg-start      # to see only new kernel messages afterwards
+systemd-run --unit=pcrescue-readtest-sdc --collect /usr/local/bin/pcrescue-readtest /dev/sdc
+```
+
+Use it on SSDs and on hard disks with clean SMART. Don't run it on a hard disk with failure signs: back up first. A healthy SATA SSD reads 1 GiB in 2–5 s (on a 3 Gb/s port about 4 s). Afterwards read the new kernel messages: `dmesg | tail -n +$(( $(cat /root/readtest-sdc.dmesg-start) + 1 )) | grep -E 'ata[0-9]|sd[a-z]' | head -n 30`.
+
+Telling the cause apart from the kernel messages:
+
+| Messages | Meaning |
+|---|---|
+| `interface fatal error`, `SError: { UnrecovData 10B8B BadCRC }`, `hard resetting link`, `ICRC` | The SATA link corrupts data: cable, connector, port, or power to the drive. The stored data is usually intact. |
+| `Logical unit not ready, hard reset required`, then `detaching`, `rejecting I/O to offline device` | The drive stopped answering and Linux dropped it. It follows link errors, or comes from a failing controller. |
+| `UNC`, `Medium Error`, `Unrecovered read error` at specific sectors | Unreadable media: the drive itself is failing. |
+| Steps much slower than the rest, with no errors | Weak areas or an overheating or throttling drive. Note which GiB. |
+
+If the disk drops off, stop. Release its mount with `umount -l /mnt/<dir>`. It comes back after a power cycle. Don't rescan or retest it before the physical fix in `repairs.md`.
 
 ## 3. RAM, CPU, heat
 
-- The rescue system itself freezing or rebooting is strong evidence of hardware trouble.
+- The rescue system itself freezing or rebooting is strong evidence of hardware trouble. Signs from the laptop: the PC suddenly stops answering pings while the laptop's cable link stays up. On the PC's monitor, the SystemRescue kernel shows a crash as a screen of kernel log lines, usually on a blue background. The crash reason may be cut off at the bottom, so ask the user for a photo anyway.
+- After such a crash, have the user hold the power button to turn it off and boot the stick again. Check for a saved crash report: `ls /sys/fs/pstore`. On SystemRescue it's usually empty, because the `efi_pstore` backend is off by default (`cat /sys/module/pstore/parameters/backend` shows `(null)`). Don't force it on: it writes crash logs into the motherboard's firmware memory, and some old boards fail badly when that fills.
+- Instead, catch the next crash live. Start `.\scripts\watch-kernel-log.ps1 -Voltages` as a background job. It streams the kernel log, plus voltages and temperatures every 5 s, into `collected\pc-kernel.log` and reconnects after drops. After a crash, read the end of that file. Messages printed during the crash itself can't get out over SSH, but warnings before it (machine-check errors, oopses, link resets, a falling voltage) do.
+- Voltages: `modprobe nct6775` (or `it87`) and `sensors` show the motherboard's readings. Only some rails are labelled (`+3.3V`, `3VSB`, `AVCC`). The 12 V and 5 V rails sit on inputs like `in1`–`in14` with board-specific scaling, so watch them for changes under load rather than reading them as volts. On Intel Haswell, `Vcore` about 1.8 V is normal: it's the input voltage, not the core voltage. `Vbat` under about 2.8 V means a flat CMOS battery. Temperatures far over 100 °C on `SYSTIN` or `AUXTIN` are unconnected inputs, not heat.
+- Linux crashing as well as Windows usually means the power supply, RAM or motherboard. A weak or failing power supply also explains SATA drives that reset or drop off (`Logical unit not ready, hard reset required`), because their power dips. Test RAM with the boot menu's memory test. For the power supply, check whether the crashes follow load (big read tests, the graphics card), and try a known-good unit if one is available.
 - `sensors` shows temperatures. CPUs above about 95 °C under light load point to cooling.
-- A quick RAM check from Linux: `nohup memtester 2G 1 > /root/memtester.log 2>&1 &`, then read the log. It tests only part of the RAM. The thorough test is the stick's boot-menu memory test (Memtest86+), which needs a reboot and the user watching the screen. One pass takes 30–90 minutes, and any error means bad RAM.
+- A quick RAM check from Linux: `nohup memtester 2G 1 > /root/memtester.log 2>&1 &`, then read the log. It tests only part of the RAM.
+- The thorough test is the stick's own boot-menu entry **"Memtest86+ memory tester for UEFI"** (9th in the SystemRescue 13 menu). The laptop can't see it, so the user watches and reports. To hand over:
+  1. Stop `watch-kernel-log.ps1` first. Its open SSH session holds up the shutdown.
+  2. Power the PC off (`systemd-run --on-active=10 systemctl poweroff`); don't reboot it. After a one-time boot-menu choice, a reboot starts Windows by itself.
+  3. The user powers on, picks the stick's UEFI entry in the boot menu, then the Memtest86+ line within the menu's 30 seconds.
+  - **Reading the result:** Memtest86+ shows a `Pass` counter and an `Errors` count, and lists failing addresses in red. Let it finish at least one full pass, two if time allows; 16 GB takes about 30–60 minutes per pass on a 4th-generation Intel. Zero errors after a full pass makes RAM unlikely. Any error means bad RAM. Then test one stick at a time to find it.
+- If a Linux crash happens with the graphics driver loading or busy (`amdgpu`, `nouveau`, `i915` lines at the end of the log), boot the menu's "basic display drivers (nomodeset)" entry. If the crashes stop there, the graphics card or its driver is the cause.
 - `stress-ng --cpu 0 --timeout 120` plus `sensors` can show heat or power-supply problems. Use it only if the drive is healthy and the user agrees, because it loads the machine.
 
 ## 4. Mount Windows read-only
@@ -52,8 +99,11 @@ Read-only mounting works even when Windows was hibernated or crashed. For BitLoc
 .\scripts\pull.ps1 /mnt/win/Windows/System32/winevt/Logs/System.evtx collected
 .\scripts\pull.ps1 /mnt/win/Windows/System32/winevt/Logs/Application.evtx collected
 .\scripts\pull.ps1 /mnt/win/Windows/System32/winevt/Logs/Setup.evtx collected
+.\scripts\pull.ps1 '/mnt/win/Windows/System32/winevt/Logs/Microsoft-Windows-Partition%4Diagnostic.evtx' collected
 .\scripts\pull.ps1 /mnt/win/Windows/Logs/CBS/CBS.log collected
 ```
+
+The PC's status screen names the file being copied while `pull.ps1` runs. The PC's own port may be 100 Mbps, about 10 MB/s, so a 20 MB event log takes a few seconds.
 
 Skip `MEMORY.DMP` unless there are no minidumps; it can be gigabytes. Check sizes first with `du -sh`.
 
@@ -79,11 +129,28 @@ Get-WinEvent -Path .\collected\System.evtx -MaxEvents 4000 |
 | 17, 18, 19, 47 | WHEA-Logger | Hardware errors (CPU, memory, PCIe) |
 | 161, 49 | volmgr | Crash dump could not be written |
 
-Look at the order of events in the minutes before each event 41.
+Look at the order of events in the minutes before each event 41. Counting per day lines disk trouble up with crashes:
 
-**Minidumps.** Use Microsoft's WinDbg on the laptop. Ask before installing it (`winget install Microsoft.WinDbg`). Run `!analyze -v` on each dump. For stop code `0xEF`, note `PROCESS_NAME` (for example `svchost.exe`, `csrss.exe`, `wininit.exe`) and the exit status. `c0000006` (in-page error) or `c000009c`/`c0000185` point to the drive. An access violation in a third-party module points to that driver or software.
+```powershell
+Get-WinEvent -FilterHashtable @{ Path = (Resolve-Path .\collected\evtx\System.evtx).Path; Id = 51, 153, 41, 1001 } |
+  Group-Object { $_.TimeCreated.ToString('yyyy-MM-dd') } | Sort-Object Name -Descending | Select-Object -First 15 |
+  ForEach-Object { $g = $_.Group; '{0}  51:{1} 153:{2} 41:{3} 1001:{4}' -f $_.Name, @($g | ? Id -eq 51).Count, @($g | ? Id -eq 153).Count, @($g | ? Id -eq 41).Count, @($g | ? Id -eq 1001).Count }
+```
+
+**Which disk is "Disk 2"?** Disk events name Windows' disk number (`Disk 2`, `\Device\Harddisk2\DR2`), which doesn't follow Linux's `sda`/`sdb` order. The Partition/Diagnostic log records every disk's number, model and serial at each boot:
+
+```powershell
+Get-WinEvent -Path '.\collected\evtx\Microsoft-Windows-Partition%4Diagnostic.evtx' -MaxEvents 30 | Where-Object Id -eq 1006 |
+  ForEach-Object { $d = @{}; ([xml]$_.ToXml()).Event.EventData.Data | ForEach-Object { $d[$_.Name] = $_.'#text' }
+    '{0:MM-dd HH:mm}  Disk {1}  {2}  {3}' -f $_.TimeCreated, $d.DiskNumber, $d.Model, $d.SerialNumber }
+```
+
+Match the model and serial with `smartctl -i` on the PC.
+
+**Minidumps.** Use Microsoft's WinDbg on the laptop. Check first whether it's installed (`Get-AppxPackage Microsoft.WinDbg`), and ask before installing it (`winget install Microsoft.WinDbg`). It downloads Microsoft's public symbols, tens of MB from msdl.microsoft.com, so say so when asking. Run `!analyze -v` on each dump. For stop code `0xEF`, note `PROCESS_NAME` (for example `svchost.exe`, `csrss.exe`, `wininit.exe`) and the exit status. `c0000006` (in-page error) or `c000009c`/`c0000185` point to the drive. An access violation in a third-party module points to that driver or software.
 
 **Patterns.**
+- Retried I/O (153) or paging errors (51) on the Windows disk around the crash times, plus `0xEF` → the system disk or its SATA connection. Confirm with the read test and its kernel messages before choosing between a new cable and a new disk.
 - Crashes in Safe Mode and in Linux → hardware.
 - Crashes in Safe Mode only, and drive errors in logs or SMART → drive.
 - Clean SMART, clean RAM test, and dumps blaming a system file → damaged Windows files. Repair in the recovery console.

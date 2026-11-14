@@ -27,7 +27,8 @@ $scpOptions = @(
   '-o', 'StrictHostKeyChecking=no',
   '-o', "UserKnownHostsFile=$knownHosts",
   '-o', 'LogLevel=ERROR',
-  '-o', 'ConnectTimeout=5'
+  '-o', 'ConnectTimeout=15',
+  '-o', 'ConnectionAttempts=3'
 )
 & "$env:WINDIR\System32\OpenSSH\scp.exe" @scpOptions "root@169.254.77.77:$RemotePath" $LocalDir
 exit $LASTEXITCODE

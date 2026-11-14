@@ -43,5 +43,17 @@ else
   done
 fi
 
+# Tools from the stick's pcrescue/ folder: the status screen on this PC's monitor (tty8),
+# the recorder that shows each command from the laptop there, and the disk read test.
+SRC=$(find /run/archiso -maxdepth 3 -type d -name pcrescue 2>/dev/null | head -n 1)
+if [ -n "$SRC" ]; then
+  install -m 755 "$SRC/status.sh" /usr/local/bin/pcrescue-status
+  install -m 755 "$SRC/job.sh" /usr/local/bin/pcrescue-job
+  install -m 755 "$SRC/readtest.sh" /usr/local/bin/pcrescue-readtest
+  systemd-run --unit=pcrescue-status --collect -p Restart=always -p RestartSec=2 \
+    /usr/local/bin/pcrescue-status >/dev/null 2>&1
+fi
+
 echo
 echo "PcRescue is ready. Connect the Ethernet cable to the laptop; this PC answers at ${ADDR%/*}."
+echo "The status screen is on Alt+F8; Alt+F1 is the command line."

@@ -55,3 +55,6 @@ The stick gives every wired port on the faulty PC `169.254.77.77/16`. Windows gi
 3. Ask the user to type `ip -br addr` on the faulty PC and read out the wired line. If `169.254.77.77` is missing, the autorun didn't run. They type `sh /run/archiso/bootmnt/autorun/autorun`.
 4. If ping works but SSH doesn't: on the PC, `systemctl status sshd` and `cat /root/.ssh/authorized_keys`. On the laptop, run `.\scripts\pc.ps1` with `-v` added to the ssh options in the script, temporarily.
 5. If the PC is plugged into a home router instead, it won't have `169.254.77.77`. Use the direct cable.
+6. An occasional `Connection timed out` while ping answers is the link dropping a few packets. The scripts already try 3 times; run the command once more before troubleshooting.
+7. A link at 100 Mbps (`Get-NetAdapter` on the laptop, `ethtool <device>` on the PC) is usually the PC's network chip, not the cable. Many older boards use 100 Mbps chips such as the Realtek RTL8105e. Commands are unaffected; big copies run at about 10 MB/s.
+8. The PC's monitor shows the status screen on Alt+F8 once the stick has booted. If it's missing, `.\scripts\install-status-screen.ps1` installs it on the running system.

@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: sata-link-errors-system-ssd
+expected_outcome: |
+  Claude reads the evidence as a bad SATA connection to the Windows SSD (cable, port or power) rather than worn-out flash or damaged Windows files, explains how that causes CRITICAL_PROCESS_DIED, recommends the by-hand fix with the PC off (new cable, other port, other power plug) followed by a repeat read test, and holds off chkdsk, sfc or any write. It also flags the SMART-failed Samsung disk holding personal files and offers an optional backup with a size and time estimate that accounts for the 100 Mbps link, suggesting an external USB drive for that much data. Nothing is changed without the user's yes.

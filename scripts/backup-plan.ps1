@@ -73,11 +73,11 @@ if ($ShowRemoteScript) { return $remote }
 if ($TsvPath) {
   $lines = Get-Content -Encoding UTF8 -LiteralPath $TsvPath
 } else {
-  $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remote))
+  # pc.ps1 sends the script encoded, so its quotes survive Windows PowerShell 5.
   $previousEncoding = [Console]::OutputEncoding
   try {
     [Console]::OutputEncoding = [Text.Encoding]::UTF8
-    $lines = @(& (Join-Path $PSScriptRoot 'pc.ps1') "echo $b64 | base64 -d | sh")
+    $lines = @(& (Join-Path $PSScriptRoot 'pc.ps1') -Label 'Measuring what a backup would copy' $remote)
   } finally {
     [Console]::OutputEncoding = $previousEncoding
   }

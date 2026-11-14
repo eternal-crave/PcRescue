@@ -13,7 +13,10 @@ Tooling in this repository (paths relative to the project root):
 |---|---|
 | `scripts/write-usb.ps1` | Builds the stick from the ISO, with label checks and a disk-name guard |
 | `usb/` | Files added to the stick: SSH key login, firewall off, fixed address `169.254.77.77` |
-| `scripts/pc.ps1` | Runs one command on the rescue PC, or opens a shell |
+| `usb/pcrescue/` | Tools the stick installs at boot: the status screen on the PC's monitor, the command recorder behind it, and `pcrescue-readtest` (read-only whole-disk read test) |
+| `scripts/pc.ps1` | Runs a command on the rescue PC, shown under `-Label` on its status screen, or opens a shell |
+| `scripts/install-status-screen.ps1` | Installs or refreshes the `usb/pcrescue` tools on the running PC, with no stick rewrite or reboot |
+| `scripts/watch-kernel-log.ps1` | Streams the PC's kernel log (and with `-Voltages` its sensor readings) to `collected\pc-kernel.log`, so the last messages before a freeze survive |
 | `scripts/pull.ps1` | Copies files from the rescue PC to the laptop (binary-safe) |
 | `scripts/backup-plan.ps1` | Read-only: lists what a backup would copy, with sizes, file counts, biggest items and times |
 | `keys/`, `downloads/`, `collected/` | SSH key, ISO, evidence copied from the PC. All gitignored, never commit them |
@@ -70,19 +73,31 @@ Tell the user, one action at a time:
 2. In the SystemRescue menu, the first entry starts by itself after 30 seconds. The menu also has a memory test entry for later if RAM is suspected.
 3. Connect the Ethernet cable between the two machines.
 
-On the laptop, wait about a minute for Windows to give the Ethernet port a `169.254.x.x` address. Then run `Test-Connection 169.254.77.77 -Count 2` and `.\scripts\pc.ps1 'uname -r; lsblk'`. If that fails, see the connection section of `references/preparation.md`.
+On the laptop, wait about a minute for Windows to give the Ethernet port a `169.254.x.x` address. Then run `Test-Connection 169.254.77.77 -Count 2` and `.\scripts\pc.ps1 -Label 'Saying hello' 'uname -r; lsblk'`. If that fails, see the connection section of `references/preparation.md`.
 
-Run every remote command as `.\scripts\pc.ps1 '<command>'`. Keep each command short and read-only until Step 7. Run anything long (memory or drive tests) with `nohup ... > /root/x.log 2>&1 &`, then check the log, because a dropped SSH session would otherwise kill it.
+The PC's monitor switches to the PcRescue status screen (Alt+F8). It shows the current command, long tasks with a progress bar, Linux uptime, CPU temperature and load, memory, the cable, every mounted drive with read-only or READ-WRITE, copies to the laptop, and recent commands. A small heart pulses calmly beside the "This PC" panel next to a slow ECG line, and turns grey and flat when the cable is out. Users watch it out of the corner of an eye, so keep it calm: no flashing, no pace changes, and never let it push a panel off the screen.
+
+Tell the user to expect the screen, and that Alt+F1 gives the command line. If it's missing, run `.\scripts\install-status-screen.ps1`. A stick written before the screen existed needs this after every boot. To check what the screen shows, read the console text: `fold -w <cols> /dev/vcs8`.
+
+Run every remote command as `.\scripts\pc.ps1 -Label '<what it does, in plain words>' '<command>'`. The label is what the person at the PC reads, so write "Checking the SSD for read errors", not the command. Multi-line here-strings (`@'...'@`) and quotes arrive intact. Keep commands read-only until Step 7.
+
+An occasional `Connection timed out` while ping still answers means the link dropped a few packets. Retry once before troubleshooting.
+
+Run anything long, such as read tests, memory tests or big copies, as its own service: `systemd-run --unit=<name> --collect <command>`. A dropped SSH session then doesn't stop it. Background work can report progress to the status screen by writing `label|percent|detail` to `/run/pcrescue/tasks/<name>` and deleting the file when done.
 
 ## Step 5: Read-only diagnosis
 
 Follow `references/diagnosis.md`. In short:
 
-1. Inventory the disks and find the Windows partition.
-2. Check drive health (SMART or NVMe health, kernel I/O errors). If the drive is failing, stop broad scans and go to Step 6 at once to offer the backup, because every extra read may be one of its last.
-3. Watch whether the rescue system itself stays up. Linux crashing or freezing as well points to hardware: RAM, CPU, power supply or heat.
+1. Inventory the disks and find the Windows partition. Also mount the other NTFS partitions read-only and list their top folders. A data disk full of the user's files matters for Step 6, even when it isn't the cause.
+2. Check every disk's health: SMART or NVMe health, the SMART error log and how old its entries are, kernel I/O errors. If a hard disk shows failure signs, stop broad scans of it and go to Step 6 at once to offer the backup, because every extra read may be one of its last.
+3. Watch whether the rescue system itself stays up. Linux crashing or freezing as well points to hardware: RAM, CPU, power supply or heat. Once the PC has frozen even once, keep `scripts\watch-kernel-log.ps1 -Voltages` running in the background for the rest of the session. Ask the user for a photo of the PC's screen whenever it stops answering.
 4. Mount Windows read-only. If it's BitLocker-encrypted, the user unlocks it at the PC's own keyboard.
-5. Pull evidence to the laptop's `collected/` folder: minidumps, event logs, CBS log. Analyze it on the laptop.
+5. Pull evidence to the laptop's `collected/` folder: minidumps, event logs (including `Microsoft-Windows-Partition%4Diagnostic.evtx`), CBS log. Analyze it on the laptop. Windows numbers disks differently from Linux: map an event's "Disk 2" to a model and serial before blaming a disk.
+6. If the logs point at the Windows disk (retried I/O or paging errors around the crashes) but its SMART looks clean, run the read test on it: `systemd-run --unit=pcrescue-readtest-sdX --collect /usr/local/bin/pcrescue-readtest /dev/sdX`. Many cheap SSDs report almost nothing in SMART, so PASSED proves little. The test only reads. Skip it on a hard disk with SMART failure signs.
+   - If the disk drops off during the test, that is the finding. Stop, release its mount with `umount -l`, and don't hammer it again before the physical fix.
+
+`references/diagnosis.md` explains how to tell link errors (cable, port, power) from worn-out media.
 
 Then explain to the user in plain words what the evidence shows, the most likely cause, and how sure you are. Quote the specific lines or values.
 
@@ -97,7 +112,9 @@ Useful options:
 - `-DriveMBps <n>` tightens the time estimate once the drive's read speed is known. Measure it with `dd if=<a large file> of=/dev/null bs=1M count=512`, but skip that on a failing drive.
 - `-TsvPath collected\backup-plan.tsv` shows the list again without measuring again.
 
-If the script can't run, measure with `du -sh` and estimate the time as GB × 1024 ÷ MB/s ÷ 60 minutes. Plan on about 80–100 MB/s for a 1 Gbps link.
+The script measures only the Windows user folders. Add personal folders on other disks with `-Extra`, for example `-Extra '/mnt/sdb1/Anna','/mnt/sdb1/Videos'`, and copy first from a disk that shows failure signs.
+
+If the script can't run, measure with `du -sh` and estimate the time as GB × 1024 ÷ MB/s ÷ 60 minutes. Plan on about 80–100 MB/s for a 1 Gbps link and 9–11 MB/s for 100 Mbps (about 35 GB an hour). Check the PC's own port with `ethtool <device>`: many older boards have a 100 Mbps chip (for example Realtek RTL8105e), so a slow link isn't necessarily a bad cable. For hundreds of GB, suggest an external USB drive plugged into the faulty PC instead. `rsync` there runs at the drives' speed, not the cable's.
 
 Don't paste the raw output. Show it in chat as an easy-to-read table, one row per folder, with what's inside in plain words, then the total, where it goes and what's left out. For example:
 
@@ -120,7 +137,7 @@ Point out easy savings, such as installers or ISO files in Downloads that can be
 
 ## Step 7: Repairs, one confirmed change at a time
 
-Pick from `references/repairs.md` by cause: failing drive, bad RAM, damaged system files, a bad driver or service, a stuck update. For every change, tell the user what will change, why the evidence supports it, how to undo it, what could go wrong, and whether their files are backed up. Then ask, and wait for an explicit yes. Back up any file before editing it, such as a registry hive. Mount read-write only for that one step.
+Pick from `references/repairs.md` by cause: a bad SATA connection (cable, port or power plug, fixed by hand with the PC off, then confirmed with the read test), a failing drive, bad RAM, damaged system files, a bad driver or service, a stuck update. Fix hardware causes before any software repair: `chkdsk` or `sfc` on a disk that keeps dropping off can do harm. For every change, tell the user what will change, why the evidence supports it, how to undo it, what could go wrong, and whether their files are backed up. Then ask, and wait for an explicit yes. Back up any file before editing it, such as a registry hive. Mount read-write only for that one step.
 
 ## Step 8: Cleanup
 
@@ -131,4 +148,6 @@ Pick from `references/repairs.md` by cause: failing drive, bad RAM, damaged syst
 
 ## Talking to the user
 
-The user may not be technical, and they're the one walking between two machines. Give one physical step at a time, say what they should see on screen, and wait for them to report back. Keep secrets out of the conversation: never ask for passwords or recovery keys in chat, and if one is pasted anyway, don't repeat it.
+The user may not be technical, and they're the one walking between two machines. Give one physical step at a time, say what they should see on screen, and wait for them to report back.
+
+When the user needs the PC off (to swap a cable, or to boot the memory test or Windows), stop any background stream first, then power off with a short delay: `systemd-run --on-active=10 systemctl poweroff`. Confirm from the laptop that pings stop and the Ethernet link goes to Disconnected. Don't reboot: after a one-time boot-menu choice, a reboot starts Windows by itself. When the PC stops answering unexpectedly, ask for a photo of its screen. Keep secrets out of the conversation: never ask for passwords or recovery keys in chat, and if one is pasted anyway, don't repeat it.

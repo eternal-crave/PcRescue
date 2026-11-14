@@ -2,6 +2,19 @@
 
 Every repair writes to the faulty PC. Before each one, tell the user what changes, the evidence behind it, how to undo it, and the risk. Then wait for an explicit yes. Offer the optional file backup (SKILL.md Step 6) before the first repair. If the user skipped it, say in each risky repair's confirmation that no backup exists.
 
+## Bad SATA connection (cable, port, power)
+
+Evidence: during the read test the kernel logs `interface fatal error`, `SError: { UnrecovData 10B8B BadCRC }` and `hard resetting link`, and the disk may drop off (`detaching`). Windows logs retried I/O (event 153) or controller resets (129) for that disk. The drive's SMART media counters are clean. The data on the disk is usually intact: the corruption happens on the way, and the drive rejects or retries it.
+
+This repair is by hand and writes nothing, but it means opening the PC, so explain it and ask like any other change. The user does it with the PC shut down and the power cable unplugged, one change at a time:
+
+1. Replace the disk's SATA data cable with a new or known-good one, ideally with latches. Swapping it with another disk's cable also works as a test.
+2. Plug it into a different SATA port on the motherboard. Prefer the 6 Gb/s ports; the board or its manual labels them (often SATA6G_1/2 or the first two ports).
+3. Use a different power plug from the power supply. Avoid splitters and Molex-to-SATA adapters.
+4. Boot the stick again and repeat the read test on that disk. A clean pass with normal speed on every GiB means the connection was the cause. Then boot Windows and watch it.
+
+If the errors stay with a new cable, another port and another power plug, the disk's own interface or controller is failing: treat it as a failing drive below. Also check the other disks' `UDMA_CRC_Error_Count`. A high count there means their cables deserve the same treatment.
+
 ## Failing drive
 
 No software repair makes a dying drive safe. Recommend replacing it.
