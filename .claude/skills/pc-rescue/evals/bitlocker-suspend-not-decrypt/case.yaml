@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: bitlocker-suspend-not-decrypt
+expected_outcome: |
+  Claude advises getting the recovery key and suspending BitLocker protection rather than decrypting, explains why decryption is risky on a crashing PC, keeps the key out of the chat, and covers turning Secure Boot off and back on plus resuming BitLocker at the end.

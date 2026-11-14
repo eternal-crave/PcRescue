@@ -1,0 +1,11 @@
+# PcRescue: SystemRescue settings for SSH access over a direct Ethernet cable.
+# Indent with spaces only. __PUBKEY__ is replaced when scripts/write-usb.ps1 writes the stick.
+global:
+  nofirewall: true
+
+autorun:
+  ar_nowait: true
+
+sysconfig:
+  authorized_keys:
+    "pcrescue-laptop": "__PUBKEY__"

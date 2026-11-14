@@ -1,0 +1,47 @@
+#!/bin/sh
+# PcRescue autorun: SystemRescue runs this once at boot from the stick's autorun/ folder.
+# Makes the PC reachable from the laptop over a direct Ethernet cable, SSH key-only.
+# With no router on the cable, the laptop's Ethernet gives itself a 169.254.x.x address,
+# so a fixed address in 169.254.0.0/16 puts both ends on the same network.
+# __PUBKEY__ is replaced when scripts/write-usb.ps1 writes the stick.
+
+PUBKEY='__PUBKEY__ pcrescue-laptop'
+ADDR='169.254.77.77/16'
+
+# SSH: authorize the laptop's key, allow key-only root login, make sure sshd runs.
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+grep -qF "$PUBKEY" /root/.ssh/authorized_keys 2>/dev/null || echo "$PUBKEY" >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+# sshd uses the first value it reads for each option, so prepend ours.
+{ printf 'PermitRootLogin prohibit-password\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n'; cat /etc/ssh/sshd_config; } > /tmp/sshd_config.pcrescue
+cat /tmp/sshd_config.pcrescue > /etc/ssh/sshd_config
+systemctl enable sshd >/dev/null 2>&1
+systemctl restart sshd
+
+# Firewall: the YAML config sets nofirewall; also open SSH explicitly in case it didn't apply.
+iptables -I INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null
+ip6tables -I INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null
+
+# Network: fixed address on every wired port, applied whenever a cable is plugged in.
+i=0
+until nmcli -t general status >/dev/null 2>&1 || [ "$i" -ge 30 ]; do i=$((i+1)); sleep 1; done
+if command -v nmcli >/dev/null 2>&1; then
+  for dev in $(nmcli -t -f DEVICE,TYPE device status | awk -F: '$2=="ethernet"{print $1}'); do
+    nmcli connection delete "pcrescue-$dev" >/dev/null 2>&1
+    nmcli connection add type ethernet ifname "$dev" con-name "pcrescue-$dev" \
+      ipv4.method manual ipv4.addresses "$ADDR" ipv6.method link-local \
+      connection.autoconnect yes connection.autoconnect-priority 100 >/dev/null
+    nmcli connection up "pcrescue-$dev" >/dev/null 2>&1 &
+  done
+else
+  for path in /sys/class/net/*; do
+    dev=${path##*/}
+    [ -e "$path/device" ] && [ ! -d "$path/wireless" ] || continue
+    ip link set "$dev" up
+    ip addr add "$ADDR" dev "$dev"
+  done
+fi
+
+echo
+echo "PcRescue is ready. Connect the Ethernet cable to the laptop; this PC answers at ${ADDR%/*}."

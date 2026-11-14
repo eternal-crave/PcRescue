@@ -14,3 +14,6 @@ collected/
 
 # USB build staging
 build/
+
+# skill-creator eval runs
+.claude/skills/*-workspace/
