@@ -20,7 +20,7 @@ Tooling in this repository (paths relative to the project root):
 | `scripts/pull.ps1` | Copies files from the rescue PC to the laptop (binary-safe) |
 | `scripts/backup-plan.ps1` | Read-only: lists what a backup would copy, with sizes, file counts, biggest items and times |
 | `cases/` | One log per rescued PC: hardware, evidence, what was tried, results, open items |
-| `keys/`, `downloads/`, `collected/` | SSH key, ISO, evidence copied from the PC. All gitignored, never commit them |
+| `keys/`, `downloads/`, `collected/`, `cases/` | SSH key, ISO, evidence copied from the PC, case logs. All gitignored, never commit them: the repository holds only the skill and its tools |
 
 ## Why the safety gates exist
 
@@ -153,7 +153,7 @@ Pick from `references/repairs.md` by cause: a bad SATA connection (cable, port o
 
 ## Case log and skill upkeep
 
-Keep each PC's story in its own file, `cases/<yyyy-mm-dd>-<short-name>.md`, and update it as the work goes. Record the hardware, the evidence with its numbers, what was tried, the results and the open items. Leave out passwords, keys, serial numbers and the names of the user's personal files and folders. A new session on the same PC starts by reading that file.
+Keep each PC's story in its own file, `cases/<yyyy-mm-dd>-<short-name>.md`, and update it as the work goes. The folder is gitignored: case logs stay on this machine and are never committed. Record the hardware, the evidence with its numbers, what was tried, the results and the open items. Leave out passwords, keys, serial numbers and the names of the user's personal files and folders. A new session on the same PC starts by reading that file.
 
 This skill holds only rules that fit any PC. When a case teaches something new, add it here or in `references/` as a general rule, without that case's names, dates or numbers. A concrete scenario goes into `evals/` as a test case.
 

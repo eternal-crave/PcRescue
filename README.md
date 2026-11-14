@@ -46,7 +46,7 @@ The faulty PC boots SystemRescue (Linux) from a USB stick. The laptop connects t
 
 ## Claude skill
 
-`.claude/skills/pc-rescue/` teaches Claude Code the whole workflow when it runs in this folder. It covers the safety briefing and explicit consent, BitLocker and Secure Boot preparation, building the stick, connecting, read-only diagnosis, an optional file backup (offered with its size in GB and an estimated copy time), repairs that each need a yes, and cleanup. Its `evals/` folder holds test cases in the `claude plugin eval` layout. The skill holds only general rules; each rescued PC's own story (hardware, evidence, what was tried, results, open items) goes in its own file in `cases/`.
+`.claude/skills/pc-rescue/` teaches Claude Code the whole workflow when it runs in this folder. It covers the safety briefing and explicit consent, BitLocker and Secure Boot preparation, building the stick, connecting, read-only diagnosis, an optional file backup (offered with its size in GB and an estimated copy time), repairs that each need a yes, and cleanup. Its `evals/` folder holds test cases in the `claude plugin eval` layout. The skill holds only general rules; each rescued PC's own story (hardware, evidence, what was tried, results, open items) goes in its own file in `cases/`, which is gitignored and stays local. This repository holds only the skill and its tools.
 
 Turn Secure Boot back on when finished. If the Windows drive uses BitLocker, Windows asks for the recovery key after Secure Boot changes, and Linux needs that key to read the drive.
 

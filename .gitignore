@@ -17,3 +17,6 @@ build/
 
 # skill-creator eval runs
 .claude/skills/*-workspace/
+
+# Case logs: one per rescued PC, local only (the repo holds the skill and its tools)
+cases/
