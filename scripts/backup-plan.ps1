@@ -20,7 +20,7 @@
 .EXAMPLE
   .\scripts\backup-plan.ps1
 .EXAMPLE
-  .\scripts\backup-plan.ps1 -Extra '/mnt/win/Users/David/AppData/Local/Google/Chrome/User Data' -DriveMBps 60
+  .\scripts\backup-plan.ps1 -Extra '/mnt/win/Users/<name>/AppData/Local/Google/Chrome/User Data' -DriveMBps 60
 #>
 param(
   [string[]]$Extra = @(),

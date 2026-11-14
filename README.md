@@ -4,6 +4,8 @@ Tooling for repairing a Windows PC that keeps crashing with `CRITICAL_PROCESS_DI
 
 The faulty PC boots SystemRescue (Linux) from a USB stick. The laptop connects to it over a direct Ethernet cable with SSH, then diagnoses the drive, RAM, crash dumps and event logs from there.
 
+A [Skillforge](https://github.com/eternal-crave/skillforge) shard, kept in its own repo because it ships with its rescue-USB tools and scripts.
+
 ## How it works
 
 - `usb/` holds files added to the stick on top of the SystemRescue ISO:
