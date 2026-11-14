@@ -17,21 +17,60 @@
   -ReuseVolume keeps the existing partition when it is already FAT32 with the right
   label, deletes its contents and rewrites them; that does not need elevation.
 
-  PcRescue files from usb/ are added last, with the laptop's public key filled in,
-  LF line endings and no BOM.
+  PcRescue files from usb/ are added last, with the laptop's public key filled in and no
+  BOM. Line endings are LF, except the Windows tools in for-windows\ (.cmd, .ps1), which get
+  CRLF. The newest downloads\OpenSSH-Win64-*.msi, if present, goes into for-windows\ too:
+  it lets the faulty PC's Windows accept the laptop over the cable once Windows stays up.
+
+  -WindowsToolsOnly adds or refreshes just for-windows\ on an existing PcRescue stick
+  (FAT32, RESCUE label). It deletes nothing, leaves SystemRescue and its boot files as they
+  are, and needs no elevation.
 
 .EXAMPLE
   .\scripts\write-usb.ps1 -DiskNumber 1 -ExpectedName 'TOSHIBA Transmemory' `
     -IsoPath .\downloads\systemrescue-13.03-amd64.iso -PublicKeyPath .\keys\pcrescue_ed25519.pub
+.EXAMPLE
+  .\scripts\write-usb.ps1 -DiskNumber 1 -ExpectedName 'TOSHIBA Transmemory' `
+    -PublicKeyPath .\keys\pcrescue_ed25519.pub -WindowsToolsOnly
 #>
+[CmdletBinding(DefaultParameterSetName = 'Build')]
 param(
   [Parameter(Mandatory)][int]$DiskNumber,
   [Parameter(Mandatory)][string]$ExpectedName,
-  [Parameter(Mandatory)][string]$IsoPath,
+  [Parameter(Mandatory, ParameterSetName = 'Build')][string]$IsoPath,
   [Parameter(Mandatory)][string]$PublicKeyPath,
-  [switch]$ReuseVolume,
+  [Parameter(ParameterSetName = 'Build')][switch]$ReuseVolume,
+  [Parameter(Mandatory, ParameterSetName = 'WindowsTools')][switch]$WindowsToolsOnly,
   [string]$LogPath
 )
+
+function Write-Overlay([string]$usbRoot, [string]$only) {
+  $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+  $overlay = Join-Path $projectRoot 'usb'
+  $source = if ($only) { Join-Path $overlay $only } else { $overlay }
+  Get-ChildItem $source -Recurse -File | ForEach-Object {
+    $relative = $_.FullName.Substring($overlay.Length).TrimStart('\')
+    $target = Join-Path $usbRoot $relative
+    $text = [System.IO.File]::ReadAllText($_.FullName).Replace("`r`n", "`n").Replace('__PUBKEY__', $pubKey)
+    # Files that Windows runs need CRLF; everything else runs on SystemRescue (Linux).
+    if ($relative -like 'for-windows\*' -and $_.Extension -in '.cmd', '.ps1') { $text = $text.Replace("`n", "`r`n") }
+    New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
+    [System.IO.File]::WriteAllText($target, $text, $utf8NoBom)
+    Write-Host "Added $relative"
+  }
+  $msi = Get-ChildItem (Join-Path $projectRoot 'downloads') -Filter 'OpenSSH-Win64-*.msi' -ErrorAction SilentlyContinue |
+    Sort-Object Name | Select-Object -Last 1
+  if ($msi) {
+    $signature = Get-AuthenticodeSignature $msi.FullName
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+      throw "$($msi.Name) is not validly signed by Microsoft."
+    }
+    Copy-Item $msi.FullName (Join-Path $usbRoot 'for-windows') -Force
+    Write-Host "Added for-windows\$($msi.Name)"
+  } else {
+    Write-Host 'Note: no downloads\OpenSSH-Win64-*.msi, so Windows remote access works only where OpenSSH Server is already installed.'
+  }
+}
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
@@ -50,6 +89,20 @@ try {
   $keyParts = (Get-Content -Raw $PublicKeyPath).Trim() -split '\s+'
   if ($keyParts.Count -lt 2 -or $keyParts[0] -notmatch '^ssh-') { throw "Not an SSH public key: $PublicKeyPath" }
   $pubKey = "$($keyParts[0]) $($keyParts[1])"
+
+  if ($WindowsToolsOnly) {
+    # --- Add the Windows tools to an existing PcRescue stick; touch nothing else ---
+    $partitions = @(Get-Partition -DiskNumber $DiskNumber | Where-Object DriveLetter -match '[A-Z]')
+    if ($partitions.Count -ne 1) { throw "Expected exactly one lettered partition on disk $DiskNumber, found $($partitions.Count)." }
+    $volume = Get-Volume -DriveLetter $partitions[0].DriveLetter
+    if ($volume.FileSystem -ne 'FAT32' -or $volume.FileSystemLabel -notmatch '^RESCUE\d+$') {
+      throw "Volume is $($volume.FileSystem) '$($volume.FileSystemLabel)', not a PcRescue stick."
+    }
+    $usbRoot = "$($partitions[0].DriveLetter):\"
+    Write-Overlay $usbRoot 'for-windows'
+    Write-Host "DONE: Windows tools are on $usbRoot (for-windows)."
+    return
+  }
 
   # --- Volume label from the ISO's boot configs ---
   $IsoPath = (Resolve-Path $IsoPath).Path
@@ -97,17 +150,8 @@ try {
   & tar.exe -xf $IsoPath -C $usbRoot
   if ($LASTEXITCODE -ne 0) { throw "tar failed with exit code $LASTEXITCODE." }
 
-  # --- PcRescue files, LF line endings, no BOM ---
-  $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-  $overlay = Join-Path $projectRoot 'usb'
-  Get-ChildItem $overlay -Recurse -File | ForEach-Object {
-    $relative = $_.FullName.Substring($overlay.Length).TrimStart('\')
-    $target = Join-Path $usbRoot $relative
-    $text = [System.IO.File]::ReadAllText($_.FullName).Replace("`r`n", "`n").Replace('__PUBKEY__', $pubKey)
-    New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
-    [System.IO.File]::WriteAllText($target, $text, $utf8NoBom)
-    Write-Host "Added $relative"
-  }
+  # --- PcRescue files, no BOM ---
+  Write-Overlay $usbRoot
   Write-Host "DONE: $usbRoot is ready."
 } catch {
   $failed = $true

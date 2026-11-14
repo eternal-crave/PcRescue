@@ -58,3 +58,18 @@ The stick gives every wired port on the faulty PC `169.254.77.77/16`. Windows gi
 6. An occasional `Connection timed out` while ping answers is the link dropping a few packets. The scripts already try 3 times; run the command once more before troubleshooting.
 7. A link at 100 Mbps (`Get-NetAdapter` on the laptop, `ethtool <device>` on the PC) is usually the PC's network chip, not the cable. Many older boards have a 100 Mbps network chip. Commands are unaffected; big copies run at about 10 MB/s.
 8. The PC's monitor shows the status screen on Alt+F8 once the stick has booted. If it's missing, `.\scripts\install-status-screen.ps1` installs it on the running system.
+
+## Windows route
+
+**OpenSSH installer.** Windows 10 and 11 often lack OpenSSH Server. `1 - Start remote access` installs only the server part of the `OpenSSH-Win64-*.msi` next to it. Download it from github.com/PowerShell/Win32-OpenSSH/releases with the user's permission (name, source, size), and check its SHA-256 against the digest GitHub publishes for that release asset. `write-usb.ps1` refuses it unless it's validly signed by Microsoft. Without it, the route works only where OpenSSH Server is already installed.
+
+**Addresses.** With the direct cable and no router, Windows on the PC also takes a `169.254.x.x` address, but a random one, unlike the stick's fixed `169.254.77.77`. The setup window shows it. The PC's firewall rule lets SSH in only from `169.254.0.0/16`.
+
+**Connection troubleshooting**, in order:
+
+1. Laptop side as in the Linux route: the Ethernet port has a `169.254.*` address and isn't Disconnected. Then `Test-Connection <address> -Count 2`.
+2. No answer: ask the user to run `2 - Status screen`. Its cable panel shows the PC's current cable address. If the window from `1 - Start remote access` reported an error, rerun it and read the error.
+3. Ping works but `win.ps1` fails: it reads the login name from the PC's SSH banner. Pass `-User <name>` if that fails. "Permission denied (publickey)" means the account isn't an administrator, or the stick's `pcrescue.pub` doesn't hold this laptop's key (rebuild with `-WindowsToolsOnly`).
+4. The laptop shares its internet over the cable (Internet Connection Sharing): the laptop becomes `192.168.137.1`, the PC gets a `192.168.137.x` address by DHCP, and the PC's firewall still lets in only `169.254.x.x`. Give the laptop's Ethernet a second, link-local address (admin, persistent): `New-NetIPAddress -InterfaceAlias Ethernet -IPAddress 169.254.77.1 -PrefixLength 16 -SkipAsSource $true`. Then use `.\scripts\win.ps1 -Address 192.168.137.x -Bind 169.254.77.1`; both are saved. Remove the extra address at cleanup.
+5. When the PC's address changes, `win.ps1` records the host key under the new address without asking. First compare the new key with the one recorded for the old address: `ssh-keygen -F <old address> -f keys\known_hosts_win` against `ssh-keyscan -t ed25519 <new address>`.
+6. `scp` or `sftp` ends with "Connection closed": OpenSSH 10 for Windows can't start `sftp-server.exe` from its default `Subsystem sftp` line without the full path. `1 - Start remote access` writes the full path, so rerun it on a PC set up by an older copy. Until then, `sftp -s C:/PROGRA~1/OpenSSH/sftp-server.exe` starts the server program directly.

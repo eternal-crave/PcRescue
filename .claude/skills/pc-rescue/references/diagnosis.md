@@ -183,3 +183,43 @@ Match the model and serial with `smartctl -i` on the PC.
 - Crashes in Safe Mode only, and drive errors in logs or SMART → drive.
 - Clean SMART, clean RAM test, and dumps blaming a system file → damaged Windows files. Repair in the recovery console.
 - Crashes started right after an update or driver install (Setup.evtx, CBS.log) → roll that back.
+
+## 7. Inside Windows (Windows route)
+
+With the Windows route on, the same checks run in Windows through `win.ps1`, which runs elevated. Everything below only reads.
+
+```powershell
+Get-PhysicalDisk | Sort-Object DeviceId | Format-Table DeviceId, FriendlyName, SerialNumber, MediaType, BusType, HealthStatus
+Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_FailurePredictStatus | Format-Table InstanceName, PredictFailure, Reason
+Get-PhysicalDisk | Get-StorageReliabilityCounter | Format-Table DeviceId, ReadErrorsUncorrected, ReadErrorsTotal, Temperature, PowerOnHours, Wear
+Get-Volume | Format-Table DriveLetter, FileSystemLabel, FileSystem, HealthStatus, SizeRemaining, Size
+```
+
+- **Two health verdicts.** `HealthStatus` is Windows' own view and can say Healthy while the drive's SMART predicts failure. `PredictFailure = True` is the drive's own verdict: treat it like SMART FAILED in Linux. `InstanceName` contains the model, which matches `FriendlyName`.
+- **Event logs are live.** Query them in place with the event IDs from section 6, for example `Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 7, 51, 153, 129, 41, 1001 } -MaxEvents 200`. For events from the current boot, "Disk N" is `Get-Disk`'s `Number` N.
+- **Windows' own maintenance.** The scheduled drive optimizer (task `\Microsoft\Windows\Defrag\ScheduledDefrag`) optimizes every drive by default, a failing hard disk included, and defragmenting reads and rewrites much of it. Check its recent runs and state:
+
+  ```powershell
+  Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'Microsoft-Windows-Defrag' } -MaxEvents 20 | Format-Table TimeCreated, Message -Wrap
+  Get-ScheduledTask -TaskPath '\Microsoft\Windows\Defrag\' | Format-Table TaskName, State
+  ```
+
+  If it touches a failing drive, recommend that the user leaves that drive out in "Defragment and Optimize Drives", or turns the schedule off, until the files are safe. That's the user's change. Note it for cleanup.
+- **Read test.** `read-test.ps1` is the Windows counterpart of `pcrescue-readtest`: raw reads in 1 MiB steps, never a write, slow steps (1 s or more) and unreadable spots logged, SMART counters (reallocated, pending, uncorrectable, CRC) before and after. The same rules apply: SSDs and clean hard disks; a hard disk with failure signs only after its files are safe and the user asks. `1 - Start remote access` doesn't install it, so copy it from the stick first, then start it detached from SSH (`<N>` is `Get-Disk`'s `Number`):
+
+  ```powershell
+  $s = (Get-Volume | Where-Object FileSystemLabel -like 'RESCUE*').DriveLetter
+  Copy-Item "${s}:\for-windows\read-test.ps1" C:\ProgramData\PcRescue\ -Force
+  Invoke-CimMethod Win32_Process -MethodName Create -Arguments @{ CommandLine =
+    'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\PcRescue\read-test.ps1 -Disk <N>' }
+  ```
+
+  Progress shows on the PC's status screen; the log is `C:\ProgramData\PcRescue\read-test-disk<N>.log`. A rising CRC count during the test means the cable or port still corrupts transfers.
+- **Copying to the laptop.** Use `scp` with the PcRescue key and the Windows host keys, with forward slashes in the PC's paths (add `-o BindAddress=<address>` when `-Bind` is in use):
+
+  ```powershell
+  scp -i keys\pcrescue_ed25519 -o IdentitiesOnly=yes -o UserKnownHostsFile=keys\known_hosts_win `
+    "<user>@<address>:C:/ProgramData/PcRescue/read-test-disk<N>.log" collected\
+  ```
+
+  `3 - Remove remote access` deletes `C:\ProgramData\PcRescue`, so copy any log you want to keep first.

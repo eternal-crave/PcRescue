@@ -1,26 +1,30 @@
 ---
 name: pc-rescue
-description: Diagnose and repair a Windows PC that cannot stay up (blue screens such as CRITICAL_PROCESS_DIED, crashes even in Safe Mode, boot loops) by booting it from a SystemRescue USB stick built on a working Windows laptop and controlling it from the laptop over a direct Ethernet cable with key-only SSH. Covers the safety briefing and explicit consent, BitLocker and Secure Boot preparation, building and verifying the stick, connecting, read-only diagnosis (drive health, RAM, crash dumps, event logs), an optional file backup with size and time estimates, gated repairs and cleanup. Use it whenever the user has a second Windows PC that crashes, blue-screens or won't stay on long enough to fix in place and wants Claude to work on it from this machine, even if they only say "my other PC keeps crashing", "BSOD loop", "fix my PC over LAN", "rescue USB" or ask whether to turn off BitLocker or Secure Boot for it.
+description: Diagnose and repair a Windows PC that can't be fixed in place (blue screens with any stop code, crashes even in Safe Mode, freezes, boot loops). It boots a SystemRescue USB stick built on a working Windows laptop, controlled from the laptop over a direct Ethernet cable with key-only SSH; when Windows stays up or the stick won't boot, the stick's for-windows tools turn on key-only SSH in Windows itself. Covers safety briefing and consent, BitLocker and Secure Boot preparation, building the stick, connecting, read-only diagnosis (drive health, RAM, crash dumps, event logs), an optional file backup with size and time, gated repairs and cleanup. Use it whenever the user has a second Windows PC that crashes, blue-screens or won't stay up long enough to fix and wants Claude to work on it from this machine, even if they only say "my other PC keeps crashing", "BSOD loop", "fix my PC over LAN", "rescue USB", "work on my other PC's Windows over the cable", or ask whether to turn off BitLocker or Secure Boot for it.
 ---
 
 # PC Rescue
 
 The faulty PC can't stay up in Windows, so it boots SystemRescue (Linux) from a USB stick instead. Claude runs on the user's working Windows laptop and controls the faulty PC through a direct Ethernet cable with SSH. That gives Claude a Linux root shell on the faulty PC, not Windows `cmd`. Windows' own repair tools (`chkdsk`, `sfc`, `DISM`, `reg load`) still run in the Windows recovery console, typed by the user.
 
+When Windows stays up long enough to work in (after a fix, or from the start), or when the PC won't boot the stick, Claude can work inside Windows instead: the stick's `for-windows` folder turns on key-only SSH there, and `scripts/win.ps1` runs PowerShell on the PC. See "Windows route" after Step 4. The steps around it (consent, diagnosis, backup, repairs, cleanup) stay the same.
+
 Tooling in this repository (paths relative to the project root):
 
 | Path | What it does |
 |---|---|
-| `scripts/write-usb.ps1` | Builds the stick from the ISO, with label checks and a disk-name guard |
+| `scripts/write-usb.ps1` | Builds the stick from the ISO, with label checks and a disk-name guard. `-WindowsToolsOnly` adds or refreshes only `for-windows\` on an existing stick, erasing nothing and without elevation |
 | `usb/` | Files added to the stick: SSH key login, firewall off, fixed address `169.254.77.77` |
 | `usb/pcrescue/` | Tools the stick installs at boot: the status screen on the PC's monitor, the command recorder behind it, and `pcrescue-readtest` (read-only whole-disk read test) |
+| `usb/for-windows/` | Windows route, double-clicked on the faulty PC: `1 - Start remote access` (key-only SSH over the cable, the Windows status screen and its command recorder), `2 - Status screen`, `3 - Remove remote access (when finished)`, plus `read-test.ps1` (read-only whole-disk read test with SMART counters before and after) |
 | `scripts/pc.ps1` | Runs a command on the rescue PC, shown under `-Label` on its status screen, or opens a shell |
+| `scripts/win.ps1` | Windows route: runs a PowerShell command in the PC's Windows, shown under `-Label` on its status screen, or opens a shell |
 | `scripts/install-status-screen.ps1` | Installs or refreshes the `usb/pcrescue` tools on the running PC, with no stick rewrite or reboot |
 | `scripts/watch-kernel-log.ps1` | Streams the PC's kernel log (and with `-Voltages` its sensor readings) to `collected\pc-kernel.log`, so the last messages before a freeze survive |
 | `scripts/pull.ps1` | Copies files from the rescue PC to the laptop (binary-safe) |
 | `scripts/backup-plan.ps1` | Read-only: lists what a backup would copy, with sizes, file counts, biggest items and times |
 | `cases/` | One log per rescued PC: hardware, evidence, what was tried, results, open items |
-| `keys/`, `downloads/`, `collected/`, `cases/` | SSH key, ISO, evidence copied from the PC, case logs. All gitignored, never commit them: the repository holds only the skill and its tools |
+| `keys/`, `downloads/`, `collected/`, `cases/` | SSH key and the saved Windows target, ISO and OpenSSH installer, evidence copied from the PC, case logs. All gitignored, never commit them: the repository holds only the skill and its tools |
 
 ## Why the safety gates exist
 
@@ -58,11 +62,11 @@ Walk the user through what applies, one item at a time. Details and commands are
 
 If a stick was built before, run the check in item 5 first and rebuild only if it fails. Writing takes about 10 minutes on a USB 2.0 stick, and logs in `downloads/` may describe an older build.
 
-1. Download the latest SystemRescue ISO and its `.sha256` into `downloads/`. Say the file name, source and size, and get permission first. Check the hash.
+1. Download the latest SystemRescue ISO and its `.sha256` into `downloads/`. Say the file name, source and size, and get permission first. Check the hash. If the Windows route may be needed and the PC's Windows has no OpenSSH Server, also offer Microsoft's `OpenSSH-Win64-v<version>.msi` from github.com/PowerShell/Win32-OpenSSH/releases, with the same permission and a hash check against the release's published digest. `write-usb.ps1` copies the newest one to `for-windows\` and refuses it unless Microsoft signed it.
 2. Create the key if `keys/pcrescue_ed25519` doesn't exist: `ssh-keygen -t ed25519 -N '""' -C pcrescue-laptop -f keys\pcrescue_ed25519`. Restrict the private key file to the current user with `icacls`, or Windows OpenSSH refuses it.
 3. Find the stick with `Get-Disk | Where-Object BusType -eq USB`. Show the user its name, size and what's on it before erasing. Use the exact `FriendlyName` as `-ExpectedName`.
 4. Run `scripts/write-usb.ps1` in an elevated PowerShell. Tell the user a Windows admin prompt is coming and to click Yes. If the stick is already FAT32 with the ISO's label, `-ReuseVolume` rewrites it without elevation.
-5. Verify before declaring it done. Compare `tar -tvf <iso>` names and sizes against the stick case-sensitively, and check that `autorun/autorun` and `sysrescue.d/500-pcrescue.yaml` have LF endings, no BOM and the real key.
+5. Verify before declaring it done. Compare `tar -tvf <iso>` names and sizes against the stick case-sensitively, and check that `autorun/autorun` and `sysrescue.d/500-pcrescue.yaml` have LF endings, no BOM and the real key. The `for-windows` launchers and scripts need CRLF instead, and `for-windows/pcrescue.pub` the real key.
 
 The script unpacks with `tar.exe` on purpose. Copying from a Windows-mounted ISO gives the plain ISO 9660 names (`X86_64_EFI`, `100_DEFAULTS.YAML`), which breaks the boot loader and the default config. The FAT32 label must equal the ISO's `archisolabel` (e.g. `RESCUE1303`), or the boot stops at an emergency shell.
 
@@ -85,6 +89,23 @@ Run every remote command as `.\scripts\pc.ps1 -Label '<what it does, in plain wo
 An occasional `Connection timed out` while ping still answers means the link dropped a few packets. Retry once before troubleshooting.
 
 Run anything long, such as read tests, memory tests or big copies, as its own service: `systemd-run --unit=<name> --collect <command>`. A dropped SSH session then doesn't stop it. Background work can report progress to the status screen by writing `label|percent|detail` to `/run/pcrescue/tasks/<name>` and deleting the file when done.
+
+## Windows route: work inside Windows
+
+Use it when Windows stays up long enough to sign in and work, or when the PC stops at power-on or doesn't list the stick. It needs the user signed in to an administrator account on the faulty PC, and the same cable. Linux stays the route for a PC that crashes within minutes: Windows' own problems then interrupt every command.
+
+Setting it up changes the PC, so explain it and ask first. `1 - Start remote access` installs OpenSSH Server if it's missing, accepts only the PcRescue key for administrator accounts, opens port 22 only to the cable (`169.254.x.x`), starts the service with Windows, and adds the status screen with a sign-in task. While it's on, Claude has full administrator control of that Windows over the cable. `3 - Remove remote access (when finished)` undoes exactly what it changed.
+
+1. Make sure the stick has `for-windows`. A stick written from an older copy of this repository needs `.\scripts\write-usb.ps1 -DiskNumber <n> -ExpectedName '<FriendlyName>' -PublicKeyPath .\keys\pcrescue_ed25519.pub -WindowsToolsOnly` on the laptop. It erases nothing.
+2. The user plugs the stick into the running PC, opens its `for-windows` folder, double-clicks `1 - Start remote access` and clicks Yes at the admin prompt. The window shows the PC's cable address and login name; the user reads out the address.
+3. On the laptop: `.\scripts\win.ps1 -Address <address> -Label 'Saying hello' 'Get-ComputerInfo -Property OsName, OsVersion'`. The address is saved for later calls, and the login name comes from the PC's SSH banner. If the connection fails, see the Windows route section of `references/preparation.md`.
+
+Run every command as `.\scripts\win.ps1 -Label '<what it does, in plain words>' '<PowerShell>'`, the same way as `pc.ps1`. It runs elevated in Windows PowerShell 5.1 on the PC. The PC's monitor shows the Windows status screen (`2 - Status screen` reopens it). Keep its panels and the calm heart the same as on the Linux screen. Keep the launcher names numbered in the order the user runs them, so "Remove" never sorts above "Start".
+
+What differs from Linux:
+- Windows has every drive mounted read-write, and Windows itself keeps writing to them. Keep commands read-only until Step 7. Check whether Windows' own maintenance, such as the scheduled drive optimizer, works on a failing drive (`references/diagnosis.md`, "Inside Windows").
+- Start long work, such as `read-test.ps1`, detached from SSH so a dropped connection doesn't stop it. Its header shows how.
+- Copy files to the laptop with `scp` using the PcRescue key and `keys\known_hosts_win`. The PC's port may be 100 Mbps here too.
 
 ## Step 5: Read-only diagnosis
 
@@ -148,7 +169,9 @@ Pick from `references/repairs.md` by cause: a bad SATA connection (cable, port o
 - Turn Secure Boot back on, if the user turned it off for the stick. Not when Windows boots in legacy/CSM mode (MBR disk with a System Reserved partition): there Secure Boot was off before the rescue started, and turning it on usually needs CSM off, which stops that Windows from starting.
 - On the first Windows start after the crashes, Windows may check the disk ("Scanning and repairing drive"). Tell the user to let it finish. Once Windows stays up, it's worth repairing system files the crashes may have damaged: in an admin terminal `DISM /Online /Cleanup-Image /RestoreHealth`, then `sfc /scannow`. The user runs these in Windows; they replace damaged system files with good copies and leave personal files alone.
 - Resume BitLocker if it was suspended (`manage-bde -protectors -enable C:` in the recovery console, or `Resume-BitLocker -MountPoint C:` in Windows).
-- Ask whether to delete `collected/`, which holds personal data, and whether to keep the stick and key for next time or wipe them.
+- If the Windows route was used: the user double-clicks `3 - Remove remote access (when finished)`. If the laptop got a second link-local address for `-Bind`, remove it (admin: `Remove-NetIPAddress -IPAddress <address> -Confirm:$false`) and run `.\scripts\win.ps1 -Bind none`.
+- Turn back on anything paused during the rescue, such as the drive optimizer's schedule, still leaving out a drive that's failing.
+- Ask whether to delete `collected/`, which holds personal data, and whether to keep the stick and key (with `keys\win-target.txt` and `keys\known_hosts_win`) for next time or wipe them.
 - Summarize what was found, what changed, and what to watch for.
 
 ## Case log and skill upkeep

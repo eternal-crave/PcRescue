@@ -23,7 +23,7 @@ No software repair makes a dying drive safe. Recommend replacing it.
 2. If there's space for a full image, `ddrescue` reads the healthy areas first and keeps a map file so it can resume: `ddrescue -n /dev/<disk> /path/disk.img /path/disk.map`.
 3. After a new drive is installed: reinstall Windows (simplest), or clone the image to the new drive if the user wants the old system.
 
-Don't run `chkdsk /r`, `fsck` or full surface scans on a failing drive. They stress it and can make it fail completely.
+Don't run `chkdsk /r`, `fsck` or full surface scans on a failing drive. They stress it and can make it fail completely. When Windows runs, keep its scheduled drive optimizer off that drive as well (`diagnosis.md`, "Inside Windows").
 
 ## Bad RAM
 

@@ -1,3 +1,6 @@
 # Files that run on SystemRescue (Linux) must keep LF line endings.
 usb/** text eol=lf
+# Files that run on the faulty PC's Windows keep CRLF.
+usb/for-windows/*.cmd text eol=crlf
+usb/for-windows/*.ps1 text eol=crlf
 *.sh text eol=lf
